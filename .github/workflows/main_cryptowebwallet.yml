@@ -59,7 +59,7 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_5C58556506F5415CB7D90C62C7965CD7 }}
 
       - name: Wait for SCM container restart
-        run: sleep 120
+        run: sleep 30
 
       - name: Deploy to Azure Web App
         id: deploy-to-webapp

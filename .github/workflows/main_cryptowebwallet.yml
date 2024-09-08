@@ -67,4 +67,4 @@ jobs:
         with:
           app-name: 'CryptoWebWallet'
           slot-name: 'Production'
-          package: 'release'  # This should be the directory where contents are extracted
+          package: './build'  # This should be the directory where contents are extracted

@@ -3,7 +3,7 @@ import axios from 'axios';  // Using axios for HTTP requests
 // import { Connection, PublicKey } from '@solana/web3.js';
 
 // Set up Alchemy API URL for Solana mainnet
-const ALCHEMY_URL = 'https://solana-mainnet.g.alchemy.com/v2/PTVcI7jurEiuKvi97DtShwoj7pCnSV2n';
+const ALCHEMY_URL = import.meta.env.VITE_ALCHEMY_URL;
 
 // Function to fetch Solana balance using Alchemy API
 export const getSolanaBalance = async (walletAddress) => {
@@ -87,31 +87,3 @@ export const getSolanaTransactionHistory = async (walletAddress) => {
   }
   
 };
-
-
-// **Function to send Solana tokens (SOL)**
-// export const sendSolTokens = async (senderPrivateKey, recipientAddress, amount) => {
-//   try {
-//     const sender = PublicKey.fromSecretKey(new Uint8Array(senderPrivateKey)); // Import sender's private key
-//     const recipient = new PublicKey(recipientAddress);  // Recipient public key
-    
-//     const transaction = new Transaction().add(
-//       SystemProgram.transfer({
-//         fromPubkey: sender.publicKey,
-//         toPubkey: recipient,
-//         lamports: amount * 1e9,  // Convert SOL to lamports
-//       })
-//     );
-
-//     const signature = await sendAndConfirmTransaction(
-//       connection,
-//       transaction,
-//       [sender]
-//     );
-    
-//     return signature;  // Return transaction signature
-//   } catch (error) {
-//     console.error("Error sending SOL:", error);
-//     throw error;
-//   }
-// };

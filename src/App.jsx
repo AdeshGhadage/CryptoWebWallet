@@ -5,6 +5,8 @@ import { WelcomePage } from './components/WelcomePage';
 import { Dashboard } from './components/Dashboard';
 import './App.css';
 
+
+
 function App() {
   const [mnemonic, setMnemonic] = useState('');
 

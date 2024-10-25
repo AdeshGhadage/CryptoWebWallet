@@ -2,11 +2,15 @@ import { useState, useEffect } from "react";
 import { mnemonicToSeed } from "bip39";
 import { derivePath } from "ed25519-hd-key";
 import PropTypes from 'prop-types'; 
-import { Keypair, PublicKey, SystemProgram, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
+import axios from 'axios';
+import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { getSolanaBalance, getSolanaTransactionHistory } from '../services/SolanaService'; // Import your services
 
+
+
 export function SolanaWallet({ walletType, setWalletType }) {
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [publicKeys, setPublicKeys] = useState(() => JSON.parse(localStorage.getItem('solanaPublicKeys')) || []);
   const [selectedPublicKey, setSelectedPublicKey] = useState(publicKeys[0] || '');
@@ -15,6 +19,7 @@ export function SolanaWallet({ walletType, setWalletType }) {
   const [loadingTransactions, setLoadingTransactions] = useState(false); // New state for loading
   const [recipientAddress, setRecipientAddress] = useState('');
   const [amount, setAmount] = useState('');
+  const [airdropAmount, setAirdropAmount] = useState('');
   
 
   useEffect(() => {
@@ -63,31 +68,114 @@ export function SolanaWallet({ walletType, setWalletType }) {
     setSelectedPublicKey(newPublicKey);
     setCurrentIndex(currentIndex + 1);
 
-    localStorage.setItem(`solanaPrivateKey_${newPublicKey}`, keypair.secretKey.toString('base58'));
+    localStorage.setItem(`solanaPrivateKey_${newPublicKey}`, keypair.secretKey);
   };
 
   const sendSolTokens = async () => {
     try {
-      const senderPrivateKeyBase58 = localStorage.getItem(`solanaPrivateKey_${selectedPublicKey}`);
-      const senderPrivateKeyUint8Array = new Uint8Array((senderPrivateKeyBase58, 'base64'));
+      const senderPrivateKey = localStorage.getItem(`solanaPrivateKey_${selectedPublicKey}`);
+      const senderPrivateKeyUint8Array = new Uint8Array(senderPrivateKey.split(','));
       const senderKeypair = Keypair.fromSecretKey(senderPrivateKeyUint8Array);
       const recipient = new PublicKey(recipientAddress);
+  
+      if (!recipient) {
+        throw new Error('Invalid recipient address');
+      }
+  
+      const lamportsAmount = amount * 1e9; // Convert SOL to lamports
+      if (lamportsAmount <= 0) {
+        throw new Error('Amount must be greater than 0');
+      }
+  
+      const recentBlockhash = await getRecentBlockhash();
+      if (!recentBlockhash) {
+        throw new Error('Failed to retrieve recent blockhash');
+      }
+  
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: senderKeypair.publicKey,
           toPubkey: recipient,
-          lamports: amount * 1e9,
+          lamports: lamportsAmount,
         })
       );
-
-      const connection = new window.solanaWeb3.Connection("https://api.mainnet-beta.solana.com", 'confirmed');
-      const signature = await sendAndConfirmTransaction(connection, transaction, [senderKeypair]);
-
-      console.log("Transaction signature", signature);
-      alert(`Transaction sent! Signature: ${signature}`);
+  
+      // Sign the transaction
+      transaction.feePayer = senderKeypair.publicKey;
+      transaction.recentBlockhash = recentBlockhash;
+      transaction.sign(senderKeypair);
+  
+      // Serialize the transaction
+      const serializedTransaction = transaction.serialize().toString('base64');
+  
+      // Send the transaction using axios
+      const alchemyUrl = import.meta.env.VITE_ALCHEMY_URL;
+      const response = await axios.post(`${alchemyUrl}/sendTransaction`, {
+        method: 'sendTransaction',
+        params: [serializedTransaction],
+        id: 1,
+        jsonrpc: "2.0"
+      });
+  
+      alert(`Transaction sent! Signature: ${response.data.result}`);
     } catch (error) {
       console.error("Error sending SOL:", error);
       alert(`Failed to send SOL: ${error.message}`);
+    }
+  };
+  
+  // Helper function to get the recent blockhash
+  const getRecentBlockhash = async () => {
+    try {
+      const alchemyUrl = import.meta.env.VITE_ALCHEMY_URL;
+      const response = await axios.post(`${alchemyUrl}/getRecentBlockhash`, {
+        method: 'getRecentBlockhash',
+        params: [
+          {
+            commitment: "finalized"
+          }
+        ],
+        id: 1,
+        jsonrpc: "2.0"
+      });
+  
+      console.log("Blockhash response:", response.data);
+  
+      // Safely access blockhash from response data
+      return response.data?.result?.value?.blockhash || null;
+    } catch (error) {
+      console.error("Failed to fetch recent blockhash:", error);
+      return null;
+    }
+  };  
+
+  // Airdrop function
+  const airdropSolTokens = async () => {
+    try {
+      const response = await axios.post(import.meta.env.VITE_ALCHEMY_URL, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "requestAirdrop",
+        params: [selectedPublicKey, airdropAmount * 1e9], // Amount in lamports
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const { result, error } = response.data;
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      console.log("Airdrop transaction signature:", result);
+      alert(`Airdrop successful! Signature: ${result}`);
+      // Fetch the updated balance after airdrop
+      fetchSolanaBalance(selectedPublicKey);
+    } catch (error) {
+      console.error("Error during airdrop:", error);
+      alert(`Failed to airdrop SOL: ${error.message}`);
     }
   };
 
@@ -106,6 +194,7 @@ export function SolanaWallet({ walletType, setWalletType }) {
   const truncateAddress = (address) => {
     return address.slice(0, 4) + '...' + address.slice(-4);
   };
+
 
   return (
     <div>
@@ -126,6 +215,17 @@ export function SolanaWallet({ walletType, setWalletType }) {
       </div>
 
       <div>Balance: {balance !== null ? `${balance} SOL` : 'Loading...'}</div>
+
+      <div className="airdrop-section">
+        <h3>Airdrop SOL Tokens</h3>
+        <input
+          type="number"
+          placeholder="Amount to Airdrop (SOL)"
+          value={airdropAmount}
+          onChange={(e) => setAirdropAmount(e.target.value)}
+        />
+        <button onClick={airdropSolTokens}>Airdrop</button>
+      </div>
 
       <div>
         <h3>Transaction History</h3>

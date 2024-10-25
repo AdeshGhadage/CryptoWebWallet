@@ -32,7 +32,6 @@ export function WelcomePage() {
       localStorage.setItem('mnemonic', newMnemonic);
       setGeneratedMnemonic(newMnemonic);
       setIsMnemonicGenerated(true);
-      
     }
   };
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SolanaWallet } from './SolanaWallet';
-// import { EthWallet } from './EthWallet';
+import { EthWallet } from './EthWallet';
 import PropTypes from 'prop-types';
 
 export function Dashboard() {
@@ -21,8 +21,7 @@ export function Dashboard() {
         //pass setWalletType as a prop to SolanaWallet
         <SolanaWallet walletType={walletType} setWalletType={setWalletType}/>
       ) : (
-        // <EthWallet walletType={walletType} setWalletType={setWalletType}/>
-        <div>ETH Wallet</div>
+        <EthWallet walletType={walletType} setWalletType={setWalletType}/>
       )}
       <button onClick={handleLogout}>Logout</button>
     </div>
@@ -31,6 +30,5 @@ export function Dashboard() {
 
 
 Dashboard.propTypes = {
-  mnemonic: PropTypes.string.isRequired,
-  setMnemonic: PropTypes.func.isRequired,
+  // No props required for Dashboard component
 };

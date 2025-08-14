@@ -2,10 +2,15 @@ import { useState, useEffect } from "react";
 import { mnemonicToSeed } from "bip39";
 import { derivePath } from "ed25519-hd-key";
 import PropTypes from 'prop-types'; 
-import axios from 'axios';
-import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { Keypair } from "@solana/web3.js";
 import nacl from "tweetnacl";
-import { getSolanaBalance, getSolanaTransactionHistory } from '../services/SolanaService'; // Import your services
+import { 
+  getSolanaBalance, 
+  getSolanaTransactionHistory, 
+  requestAirdrop, 
+  sendSolanaTransaction,
+  isValidSolanaAddress 
+} from '../services/SolanaService';
 
 
 
@@ -16,10 +21,11 @@ export function SolanaWallet({ walletType, setWalletType }) {
   const [selectedPublicKey, setSelectedPublicKey] = useState(publicKeys[0] || '');
   const [balance, setBalance] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [loadingTransactions, setLoadingTransactions] = useState(false); // New state for loading
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
   const [recipientAddress, setRecipientAddress] = useState('');
   const [amount, setAmount] = useState('');
-  const [airdropAmount, setAirdropAmount] = useState('');
+  const [airdropAmount, setAirdropAmount] = useState(1);
+  const [loading, setLoading] = useState(false);
   
 
   useEffect(() => {
@@ -57,6 +63,11 @@ export function SolanaWallet({ walletType, setWalletType }) {
 
   const handleAddWallet = async () => {
     const mnemonic = localStorage.getItem('mnemonic');
+    if (!mnemonic) {
+      alert('No mnemonic found. Please create a wallet first.');
+      return;
+    }
+    
     const seed = await mnemonicToSeed(mnemonic);
     const path = `m/44'/501'/${currentIndex}'/0'`;
     const derivedSeed = derivePath(path, seed.toString("hex")).key;
@@ -68,114 +79,96 @@ export function SolanaWallet({ walletType, setWalletType }) {
     setSelectedPublicKey(newPublicKey);
     setCurrentIndex(currentIndex + 1);
 
-    localStorage.setItem(`solanaPrivateKey_${newPublicKey}`, keypair.secretKey);
+    // Store the secret key properly
+    localStorage.setItem(`solanaPrivateKey_${newPublicKey}`, JSON.stringify(Array.from(keypair.secretKey)));
   };
 
   const sendSolTokens = async () => {
     try {
-      const senderPrivateKey = localStorage.getItem(`solanaPrivateKey_${selectedPublicKey}`);
-      const senderPrivateKeyUint8Array = new Uint8Array(senderPrivateKey.split(','));
-      const senderKeypair = Keypair.fromSecretKey(senderPrivateKeyUint8Array);
-      const recipient = new PublicKey(recipientAddress);
-  
-      if (!recipient) {
+      setLoading(true);
+
+      if (!recipientAddress || !amount) {
+        throw new Error('Please fill in all fields');
+      }
+
+      if (!isValidSolanaAddress(recipientAddress)) {
         throw new Error('Invalid recipient address');
       }
-  
-      const lamportsAmount = amount * 1e9; // Convert SOL to lamports
-      if (lamportsAmount <= 0) {
+
+      if (parseFloat(amount) <= 0) {
         throw new Error('Amount must be greater than 0');
       }
-  
-      const recentBlockhash = await getRecentBlockhash();
-      if (!recentBlockhash) {
-        throw new Error('Failed to retrieve recent blockhash');
+
+      // Get the stored private key
+      const storedPrivateKey = localStorage.getItem(`solanaPrivateKey_${selectedPublicKey}`);
+      if (!storedPrivateKey) {
+        throw new Error('Private key not found for selected wallet');
       }
-  
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: senderKeypair.publicKey,
-          toPubkey: recipient,
-          lamports: lamportsAmount,
-        })
-      );
-  
-      // Sign the transaction
-      transaction.feePayer = senderKeypair.publicKey;
-      transaction.recentBlockhash = recentBlockhash;
-      transaction.sign(senderKeypair);
-  
-      // Serialize the transaction
-      const serializedTransaction = transaction.serialize().toString('base64');
-  
-      // Send the transaction using axios
-      const alchemyUrl = import.meta.env.VITE_ALCHEMY_URL;
-      const response = await axios.post(`${alchemyUrl}/sendTransaction`, {
-        method: 'sendTransaction',
-        params: [serializedTransaction],
-        id: 1,
-        jsonrpc: "2.0"
-      });
-  
-      alert(`Transaction sent! Signature: ${response.data.result}`);
+
+      // Parse the stored private key back to Uint8Array
+      const privateKeyArray = JSON.parse(storedPrivateKey);
+      const senderKeypair = Keypair.fromSecretKey(new Uint8Array(privateKeyArray));
+
+      // Use the service function to send the transaction
+      const result = await sendSolanaTransaction(senderKeypair, recipientAddress, parseFloat(amount));
+
+      if (result.success) {
+        alert(`Transaction successful! Signature: ${result.signature}`);
+        // Clear form and refresh balance
+        setRecipientAddress('');
+        setAmount('');
+        fetchSolanaBalance(selectedPublicKey);
+        fetchTransactionHistoryOnce(selectedPublicKey);
+      }
+
     } catch (error) {
       console.error("Error sending SOL:", error);
       alert(`Failed to send SOL: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
-  
-  // Helper function to get the recent blockhash
-  const getRecentBlockhash = async () => {
-    try {
-      const alchemyUrl = import.meta.env.VITE_ALCHEMY_URL;
-      const response = await axios.post(`${alchemyUrl}/getRecentBlockhash`, {
-        method: 'getRecentBlockhash',
-        params: [
-          {
-            commitment: "finalized"
-          }
-        ],
-        id: 1,
-        jsonrpc: "2.0"
-      });
-  
-      console.log("Blockhash response:", response.data);
-  
-      // Safely access blockhash from response data
-      return response.data?.result?.value?.blockhash || null;
-    } catch (error) {
-      console.error("Failed to fetch recent blockhash:", error);
-      return null;
-    }
-  };  
+
 
   // Airdrop function
   const airdropSolTokens = async () => {
     try {
-      const response = await axios.post(import.meta.env.VITE_ALCHEMY_URL, {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "requestAirdrop",
-        params: [selectedPublicKey, airdropAmount * 1e9], // Amount in lamports
-      }, {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      setLoading(true);
 
-      const { result, error } = response.data;
-
-      if (error) {
-        throw new Error(error.message);
+      if (!airdropAmount || parseFloat(airdropAmount) <= 0) {
+        throw new Error('Please enter a valid airdrop amount');
       }
 
-      console.log("Airdrop transaction signature:", result);
-      alert(`Airdrop successful! Signature: ${result}`);
-      // Fetch the updated balance after airdrop
-      fetchSolanaBalance(selectedPublicKey);
+      const result = await requestAirdrop(selectedPublicKey, parseFloat(airdropAmount));
+
+      if (result.success) {
+        alert(`Airdrop successful! Signature: ${result.signature}. Please wait a few seconds for balance to update.`);
+        
+        // Clear the airdrop amount
+        setAirdropAmount(1);
+        
+        // Refresh balance multiple times with delays to catch the update
+        const refreshBalance = async () => {
+          for (let i = 0; i < 5; i++) {
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+            try {
+              await fetchSolanaBalance(selectedPublicKey);
+              await fetchTransactionHistoryOnce(selectedPublicKey);
+            } catch (error) {
+              console.log(`Retry ${i + 1} failed:`, error);
+            }
+          }
+        };
+        
+        // Start the refresh process
+        refreshBalance();
+      }
+
     } catch (error) {
       console.error("Error during airdrop:", error);
       alert(`Failed to airdrop SOL: ${error.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -214,7 +207,12 @@ export function SolanaWallet({ walletType, setWalletType }) {
           <button onClick={handleAddWallet}>Add</button>
       </div>
 
-      <div>Balance: {balance !== null ? `${balance} SOL` : 'Loading...'}</div>
+      <div>
+        Balance: {balance !== null ? `${balance} SOL` : 'Loading...'} 
+        <button onClick={() => fetchSolanaBalance(selectedPublicKey)} style={{marginLeft: '10px'}}>
+          Refresh
+        </button>
+      </div>
 
       <div className="airdrop-section">
         <h3>Airdrop SOL Tokens</h3>
@@ -224,7 +222,9 @@ export function SolanaWallet({ walletType, setWalletType }) {
           value={airdropAmount}
           onChange={(e) => setAirdropAmount(e.target.value)}
         />
-        <button onClick={airdropSolTokens}>Airdrop</button>
+        <button onClick={airdropSolTokens} disabled={loading}>
+          {loading ? 'Requesting...' : 'Airdrop'}
+        </button>
       </div>
 
       <div>
@@ -244,17 +244,45 @@ export function SolanaWallet({ walletType, setWalletType }) {
             </thead>
             <tbody>
               {transactions.map((tx, index) => {
-                const fromPubkey = truncateAddress(tx.transaction.message.accountKeys[0]);
-                const toPubkey = truncateAddress(tx.transaction.message.accountKeys[1]);
-                const amount = tx.meta.postBalances[1] - tx.meta.preBalances[1];
-                const shortSignature = tx.transaction.signatures[0].slice(0, 3) + '...' + tx.transaction.signatures[0].slice(-2);
+                // Safe access to transaction data with fallbacks
+                const transaction = tx.transaction || {};
+                const message = transaction.message || {};
+                const accountKeys = message.accountKeys || [];
+                const signatures = transaction.signatures || [];
+                const meta = tx.meta || {};
+                const preBalances = meta.preBalances || [];
+                const postBalances = meta.postBalances || [];
+
+                const fromPubkey = accountKeys[0] ? truncateAddress(accountKeys[0]) : 'Unknown';
+                const toPubkey = accountKeys[1] ? truncateAddress(accountKeys[1]) : 'Unknown';
+                const amount = postBalances[1] && preBalances[1] 
+                  ? postBalances[1] - preBalances[1] 
+                  : 0;
+                const shortSignature = signatures[0] 
+                  ? signatures[0].slice(0, 10) + '...' + signatures[0].slice(-8)
+                  : tx.signature ? tx.signature.slice(0, 10) + '...' + tx.signature.slice(-8) : 'Unknown';
 
                 return (
                   <tr key={index}>
-                    <td>{shortSignature} <button onClick={() => copyToClipboard(tx.transaction.signatures[0])}>Copy</button></td>
-                    <td>{fromPubkey} <button onClick={() => copyToClipboard(tx.transaction.message.accountKeys[0])}>Copy</button></td>
-                    <td>{toPubkey} <button onClick={() => copyToClipboard(tx.transaction.message.accountKeys[1])}>Copy</button></td>
-                    <td>{formatLamportsToSol(amount)} SOL</td>
+                    <td>
+                      {shortSignature} 
+                      <button onClick={() => copyToClipboard(signatures[0] || tx.signature || '')}>
+                        Copy
+                      </button>
+                    </td>
+                    <td>
+                      {fromPubkey} 
+                      <button onClick={() => copyToClipboard(accountKeys[0] || '')}>
+                        Copy
+                      </button>
+                    </td>
+                    <td>
+                      {toPubkey} 
+                      <button onClick={() => copyToClipboard(accountKeys[1] || '')}>
+                        Copy
+                      </button>
+                    </td>
+                    <td>{formatLamportsToSol(Math.abs(amount))} SOL</td>
                   </tr>
                 );
               })}
@@ -279,7 +307,9 @@ export function SolanaWallet({ walletType, setWalletType }) {
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
         />
-        <button onClick={sendSolTokens}>Send SOL</button>
+        <button onClick={sendSolTokens} disabled={loading}>
+          {loading ? 'Sending...' : 'Send SOL'}
+        </button>
       </div>
     </div>
   );

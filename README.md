@@ -67,7 +67,7 @@ A modern, secure multi-chain cryptocurrency wallet built with React and Vite. Su
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/CryptoWebWallet.git
+git clone https://github.com/AdeshGhadage/CryptoWebWallet.git
 cd CryptoWebWallet
 ```
 
@@ -155,18 +155,6 @@ npm run lint
 - **Not Production Ready**: Do not use for mainnet or real funds
 - **Backup Seed Phrase**: Always backup your mnemonic phrase securely
 - **Clear Data**: Use "Logout" to clear all stored data when done testing
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🆘 Troubleshooting
 
